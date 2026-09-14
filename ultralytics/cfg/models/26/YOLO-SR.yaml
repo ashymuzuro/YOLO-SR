@@ -1,0 +1,76 @@
+# YOLO-SR: Edge-Aware Dual-Path Architecture for UAV Small Object Detection
+# Based on the YOLO26n baseline, extended with the Zero-Cost Super-Resolution
+# training-only innovations described in the paper (Sec. 3):
+#   * RepCF - Reparameterised Contextual Fusion in the neck (folds to one 3x3 conv)
+#   * SAB   - Super-Resolution Auxiliary Branch (pruned before deployment)
+# The main inference path (layers 0-24) is identical to YOLO26n. Layers 25-28
+# form the SAB and run ONLY during training; at inference the forward pass
+# returns at the Detect head (layer 24), so the SAB adds zero runtime cost.
+
+# Parameters
+nc: 10 # number of classes (e.g., VisDrone2019 has 10)
+end2end: True # NMS-free end-to-end detection head (YOLO26)
+reg_max: 1 # DFL bins
+scales:
+  # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024]
+
+# YOLO-SR backbone (identical to YOLO26n)
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4: P3 feature map (shared source for SAB and RepCF)
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]] # 6: P4 feature map
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 8: P5 feature map
+  - [-1, 1, SPPF, [1024, 5, 3, True]] # 9
+  - [-1, 2, C2PSA, [1024]] # 10
+
+# YOLO-SR head (PAN-FPN neck with RepCF, plus the SAB tail)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 11
+  - [[-1, 6], 1, Concat, [1]] # 12: cat backbone P4
+  - [-1, 2, C3k2, [512, True]] # 13: Neck P4
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14: upsampled Neck P4
+
+  # ---------------------------------------------------------
+  # INNOVATION 1: Reparameterised Contextual Fusion (RepCF)  [paper Sec. 3.3]
+  # Training: F_out = BN1(Conv3x3(P3)) + BN2(Conv1x1(P3)) + P3   (Eq. 4)
+  # Deploy : folds in closed form into ONE 3x3 conv              (Eq. 5)
+  # RepCF is channel-preserving (parse_model forces c2 == c1), so the [256]
+  # argument below is a nominal label; the actual width follows the P3 tensor.
+  # ---------------------------------------------------------
+  - [4, 1, RepCF, [256]] # 15: route backbone P3 (layer 4) through RepCF
+  - [[-1, 14], 1, Concat, [1]] # 16: concat RepCF(P3) with upsampled Neck P4
+  # ---------------------------------------------------------
+
+  - [-1, 2, C3k2, [256, True]] # 17 (P3/8-small detection head input)
+
+  - [-1, 1, Conv, [256, 3, 2]] # 18
+  - [[-1, 13], 1, Concat, [1]] # 19: cat head P4
+  - [-1, 2, C3k2, [512, True]] # 20 (P4/16-medium detection head input)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 21
+  - [[-1, 10], 1, Concat, [1]] # 22: cat head P5
+  - [-1, 1, C3k2, [1024, True, 0.5, True]] # 23 (P5/32-large detection head input)
+
+  # Main Detection Head (this is the LAST executed layer at inference)
+  - [[17, 20, 23], 1, Detect, [nc]] # 24: Detect(P3, P4, P5)
+
+  # ---------------------------------------------------------
+  # INNOVATION 2: Super-Resolution Auxiliary Branch (SAB)  [paper Sec. 3.2]
+  # Training-only decoder: Î_sr = sigmoid(Up_x8(Conv1x1(Conv3x3(P3))))  (Eq. 3)
+  # Branches laterally from backbone P3 (layer 4). Removed before deployment.
+  # The forward pass returns at Detect (layer 24) during inference, so these
+  # layers never execute at runtime; use model.strip_sr_branch() to also drop
+  # their parameters from a deployment checkpoint.
+  # ---------------------------------------------------------
+  - [4, 1, Conv, [256, 3, 1]] # 25: feature refinement (Conv 3x3, stride 1)
+  - [-1, 1, Conv, [3, 1, 1, None, 1, 1, False]] # 26: 1x1 projection to 3 RGB channels (no activation)
+  - [-1, 1, nn.Upsample, [None, 8, "nearest"]] # 27: deterministic x8 upsampling to input resolution
+  - [-1, 1, nn.Sigmoid, []] # 28: range normalisation to [0, 1] -> Î_sr (SAB output)
