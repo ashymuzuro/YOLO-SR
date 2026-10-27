@@ -1,0 +1,51 @@
+# YOLO26n baseline — ablation reference for YOLO-SR.
+# This is the plain YOLO26n topology: identical to the YOLO-SR *inference* path
+# with NO RepCF and NO Super-Resolution Auxiliary Branch (SAB). Because there is
+# no SAB reconstruction, the Structure-Aware Multi-Task Loss is inactive, so this
+# config is the "YOLO26n baseline" row of Tables 4, 5 and 8 (all of A/B/C off).
+#
+# Train:  python train_yolo_sr.py --model ultralytics/cfg/models/26/yolo26n.yaml \
+#             --data ultralytics/cfg/datasets/VisDrone.yaml --name abl_baseline
+
+# Parameters
+nc: 10 # number of classes (VisDrone2019 has 10)
+end2end: True # NMS-free end-to-end detection head (YOLO26)
+reg_max: 1 # DFL bins
+scales:
+  # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024]
+
+# Backbone (identical to YOLO-SR)
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4: P3 feature map
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]] # 6: P4 feature map
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 8: P5 feature map
+  - [-1, 1, SPPF, [1024, 5, 3, True]] # 9
+  - [-1, 2, C2PSA, [1024]] # 10
+
+# Standard PAN-FPN neck + head (P3 concatenated directly — no RepCF)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 11
+  - [[-1, 6], 1, Concat, [1]] # 12: cat backbone P4
+  - [-1, 2, C3k2, [512, True]] # 13: Neck P4
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14: upsampled Neck P4
+  - [[-1, 4], 1, Concat, [1]] # 15: cat backbone P3 (layer 4) — plain concat, no RepCF
+  - [-1, 2, C3k2, [256, True]] # 16 (P3/8-small detection head input)
+
+  - [-1, 1, Conv, [256, 3, 2]] # 17
+  - [[-1, 13], 1, Concat, [1]] # 18: cat head P4
+  - [-1, 2, C3k2, [512, True]] # 19 (P4/16-medium detection head input)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 20
+  - [[-1, 10], 1, Concat, [1]] # 21: cat head P5
+  - [-1, 1, C3k2, [1024, True, 0.5, True]] # 22 (P5/32-large detection head input)
+
+  - [[16, 19, 22], 1, Detect, [nc]] # 23: Detect(P3, P4, P5)

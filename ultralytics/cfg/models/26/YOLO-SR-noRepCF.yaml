@@ -1,0 +1,60 @@
+# YOLO-SR ablation: SAB + Structure-Aware Multi-Task Loss, RepCF REMOVED.
+# Keeps the Super-Resolution Auxiliary Branch (so the multi-task loss is active)
+# but replaces the RepCF fusion with a plain P3 concat (standard YOLO26n neck).
+# This isolates components B + C without A. It is the "+B+C" row of Table 4 and,
+# in the mechanism-isolation study (Table 5), it is the base for the three SR-loss
+# rows (uniform / DASW / DASW+FDC via the --eta/--mu flags) and the "P3-SAB
+# branch" row (default loss).
+#
+# Train:  python train_yolo_sr.py --model ultralytics/cfg/models/26/YOLO-SR-noRepCF.yaml \
+#             --data ultralytics/cfg/datasets/VisDrone.yaml --name abl_BC_sab_loss
+
+# Parameters
+nc: 10
+end2end: True
+reg_max: 1
+scales:
+  n: [0.50, 0.25, 1024]
+
+# Backbone (identical to YOLO-SR)
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4: P3 feature map (source for SAB)
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]] # 6: P4 feature map
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 8: P5 feature map
+  - [-1, 1, SPPF, [1024, 5, 3, True]] # 9
+  - [-1, 2, C2PSA, [1024]] # 10
+
+# Standard PAN-FPN neck (plain P3 concat, no RepCF) + SAB tail
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 11
+  - [[-1, 6], 1, Concat, [1]] # 12: cat backbone P4
+  - [-1, 2, C3k2, [512, True]] # 13: Neck P4
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14: upsampled Neck P4
+  - [[-1, 4], 1, Concat, [1]] # 15: cat backbone P3 (layer 4) — plain concat, no RepCF
+  - [-1, 2, C3k2, [256, True]] # 16 (P3/8-small detection head input)
+
+  - [-1, 1, Conv, [256, 3, 2]] # 17
+  - [[-1, 13], 1, Concat, [1]] # 18: cat head P4
+  - [-1, 2, C3k2, [512, True]] # 19 (P4/16-medium detection head input)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 20
+  - [[-1, 10], 1, Concat, [1]] # 21: cat head P5
+  - [-1, 1, C3k2, [1024, True, 0.5, True]] # 22 (P5/32-large detection head input)
+
+  - [[16, 19, 22], 1, Detect, [nc]] # 23: Detect(P3, P4, P5)
+
+  # ---------------------------------------------------------
+  # Super-Resolution Auxiliary Branch (SAB) — training-only, branches from P3 (layer 4)
+  # Removed before deployment; provides the reconstruction the multi-task loss supervises.
+  # ---------------------------------------------------------
+  - [4, 1, Conv, [256, 3, 1]] # 24: feature refinement (Conv 3x3, stride 1)
+  - [-1, 1, Conv, [3, 1, 1, None, 1, 1, False]] # 25: 1x1 projection to 3 RGB channels (no activation)
+  - [-1, 1, nn.Upsample, [None, 8, "nearest"]] # 26: deterministic x8 upsampling
+  - [-1, 1, nn.Sigmoid, []] # 27: range normalisation to [0, 1] -> SAB output

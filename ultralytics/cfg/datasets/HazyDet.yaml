@@ -1,0 +1,29 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# HazyDet dataset https://github.com/GrokCV/HazyDet
+# Used in: "A Zero-Cost Super-Resolution and Edge-Aware Architecture for Micro-Scale UAV Object Detection"
+# Subset (paper Sec. 4.1.1): NATURAL HAZE subset - train 8000, val 1000, test 2000 images.
+# Example usage: python val.py --data ultralytics/cfg/datasets/HazyDet.yaml
+# parent
+# ├── ultralytics
+# └── datasets
+#     └── HazyDet  <- place the converted natural-haze subset here
+#         ├── images/{train,val,test}/*.jpg
+#         └── labels/{train,val,test}/*.txt   # YOLO format: class cx cy w h (normalised)
+
+# Train/val/test sets
+path: HazyDet             # dataset root dir (edit to your absolute/relative path if different)
+train: images/train       # 8000 images
+val: images/val           # 1000 images
+test: images/test         # 2000 images
+
+# Classes
+names:
+  0: car
+  1: truck
+  2: bus
+
+# Notes -----------------------------------------------------------------------------------------------------
+# Use the NATURAL HAZE subset (real hazy conditions), not the synthetic subset, to match the paper. Download
+# from the source repository above and convert annotations to YOLO TXT format. Keep the class ORDER identical
+# to the mapping above; if your copy of HazyDet defines classes in a different order, update the indices here.

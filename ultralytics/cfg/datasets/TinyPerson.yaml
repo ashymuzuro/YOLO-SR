@@ -1,0 +1,28 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# TinyPerson dataset https://github.com/ucas-vg/TinyBenchmark
+# Used in: "A Zero-Cost Super-Resolution and Edge-Aware Architecture for Micro-Scale UAV Object Detection"
+# Splits (paper Sec. 4.1.1): train 794 images, test 816 images. Targets are typically < 20 px.
+# Example usage: python val.py --data ultralytics/cfg/datasets/TinyPerson.yaml
+# parent
+# ├── ultralytics
+# └── datasets
+#     └── TinyPerson  <- place the converted dataset here
+#         ├── images/{train,test}/*.jpg
+#         └── labels/{train,test}/*.txt   # YOLO format: class cx cy w h (normalised)
+
+# Train/val/test sets
+path: TinyPerson          # dataset root dir (edit to your absolute/relative path if different)
+train: images/train       # 794 images
+val: images/test          # 816 images (TinyPerson uses train/test; test is used for evaluation)
+test: images/test         # 816 images
+
+# Classes
+names:
+  0: earth_person
+  1: sea_person
+
+# Notes -----------------------------------------------------------------------------------------------------
+# Download the raw TinyPerson data from the source repository above and convert its annotations to the YOLO
+# TXT format (one .txt per image; each line "class cx cy w h" with normalised coordinates). Keep the class
+# ORDER identical to the mapping above, since label files reference classes by integer index.

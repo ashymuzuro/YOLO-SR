@@ -1,0 +1,58 @@
+# YOLO-SR ablation: PLAIN 3x3 FUSION (RepCF replaced by a single 3x3 conv).
+# Isolates the *structure* of the RepCF fusion: instead of the multi-branch
+# reparameterised block, backbone P3 is routed through one ordinary 3x3 conv
+# before the neck concat. No SAB. This is the "Plain 3x3 fusion" row of the
+# mechanism-isolation study (Table 5); compare against YOLO-SR-noSAB.yaml
+# ("RepCF fused") to see the gain from the reparameterised branches at identical
+# deployment cost.
+#
+# Channel note: RepCF is channel-preserving and outputs 128 ch on P3. To make the
+# comparison fair (same width into the concat), the replacement Conv nominal arg
+# is [512] -> 512 * width(0.25) = 128 ch, matching RepCF exactly.
+#
+# Train:  python train_yolo_sr.py --model ultralytics/cfg/models/26/YOLO-SR-plain3x3.yaml \
+#             --data ultralytics/cfg/datasets/VisDrone.yaml --name abl_plain3x3
+
+# Parameters
+nc: 10
+end2end: True
+reg_max: 1
+scales:
+  n: [0.50, 0.25, 1024]
+
+# Backbone (identical to YOLO-SR)
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4: P3 feature map (source for the fusion conv)
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]] # 6: P4 feature map
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 8: P5 feature map
+  - [-1, 1, SPPF, [1024, 5, 3, True]] # 9
+  - [-1, 2, C2PSA, [1024]] # 10
+
+# Neck with a plain 3x3 fusion conv in place of RepCF (no SAB tail)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 11
+  - [[-1, 6], 1, Concat, [1]] # 12: cat backbone P4
+  - [-1, 2, C3k2, [512, True]] # 13: Neck P4
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14: upsampled Neck P4
+
+  - [4, 1, Conv, [512, 3, 1]] # 15: plain 3x3 conv on backbone P3 (-> 128 ch), replaces RepCF
+  - [[-1, 14], 1, Concat, [1]] # 16: concat conv(P3) with upsampled Neck P4
+
+  - [-1, 2, C3k2, [256, True]] # 17 (P3/8-small detection head input)
+
+  - [-1, 1, Conv, [256, 3, 2]] # 18
+  - [[-1, 13], 1, Concat, [1]] # 19: cat head P4
+  - [-1, 2, C3k2, [512, True]] # 20 (P4/16-medium detection head input)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 21
+  - [[-1, 10], 1, Concat, [1]] # 22: cat head P5
+  - [-1, 1, C3k2, [1024, True, 0.5, True]] # 23 (P5/32-large detection head input)
+
+  - [[17, 20, 23], 1, Detect, [nc]] # 24: Detect(P3, P4, P5)
