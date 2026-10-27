@@ -7,8 +7,8 @@ YOLO-SR is an edge-aware dual-path detector built on the **YOLO26n** baseline. E
 This repository is a self-contained fork of **Ultralytics 8.4.5** and contains everything needed to **reproduce every table in the paper from scratch**: environment, datasets, training, evaluation, the zero-cost deployment check, and edge-device benchmarking.
 
 
+<img width="1450" height="760" alt="Fig" src="https://github.com/user-attachments/assets/9afb42f8-222c-499c-8b80-fa51f711df4e" />
 
-<img width="1450" alt="YOLO-SR architecture" src="https://github.com/user-attachments/assets/d04db3b1-85b3-4062-83f3-d147d9890b0a" />
 
 ---
 
